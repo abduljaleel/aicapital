@@ -1,6 +1,6 @@
 export const appConfig = {
   name: "AI Capital",
-  description: "AI as a guide for the thinking human. Make better decisions.",
+  description: "Linter for agentic logic that predicts hidden costs.",
   url: "https://aicapital.ee",
   navItems: [
     { title: "Dashboard", href: "/dashboard", icon: "dashboard" },
