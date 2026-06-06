@@ -1,310 +1,497 @@
 import Link from "next/link";
 import { appConfig } from "@/lib/config";
 
-const ACCENT = "#f0a050";
-const BG = "#0f0d0a";
-const PANEL = "#1a160f";
+/* ────────────────────────────────────────────────────────────────────────
+   AI CAPITAL — TRADING TERMINAL ARCHETYPE
+   A Bloomberg-dense financial cockpit. Dark, monospace numerals, multi-panel.
+   The 4-up dashboard grid IS the hero. No giant centered headline.
+   ──────────────────────────────────────────────────────────────────────── */
 
-interface TreeNode {
+const BG = "#0a0b0d";
+const PANEL = "#101216";
+const PANEL_HEAD = "#0c0e11";
+const GRID = "#1c2026";
+const AMBER = "#f0a050";
+const UP = "#4ade80"; // green
+const DOWN = "#f06060"; // red
+const HOT = "#ff5a4d";
+const DIM = "#5a6270";
+
+/* Ticker tape entries — fake live cost feed */
+const ticker: { sym: string; px: string; dir: "up" | "down" | "hot" }[] = [
+  { sym: "GPT-4o", px: "$0.031", dir: "up" },
+  { sym: "claude", px: "$0.018", dir: "down" },
+  { sym: "loop#42", px: "$4,287", dir: "hot" },
+  { sym: "haiku", px: "$0.002", dir: "down" },
+  { sym: "o3-mini", px: "$0.014", dir: "up" },
+  { sym: "embed", px: "$0.0001", dir: "down" },
+  { sym: "agent#4821", px: "$612", dir: "up" },
+  { sym: "tool.code", px: "$3.91", dir: "hot" },
+  { sym: "sonnet", px: "$0.022", dir: "up" },
+  { sym: "rerank", px: "$0.008", dir: "down" },
+  { sym: "loop#17", px: "$1,204", dir: "hot" },
+  { sym: "gpt-4o-mini", px: "$0.006", dir: "down" },
+];
+
+function tickColor(dir: "up" | "down" | "hot") {
+  if (dir === "up") return UP;
+  if (dir === "down") return DOWN;
+  return HOT;
+}
+function tickGlyph(dir: "up" | "down" | "hot") {
+  if (dir === "up") return "▲";
+  if (dir === "down") return "▼";
+  return "▲▲";
+}
+
+/* Forecast bars (Panel B) — climbing spend, breaches the ceiling */
+const forecastBars = [12, 18, 24, 31, 40, 52, 66, 79, 88, 96];
+const CEILING_AT = 7; // bar index where projection crosses the budget ceiling
+
+/* Task-tree nodes (Panel A) */
+interface Node {
   id: string;
   label: string;
   cost: string;
-  hot?: boolean;
   x: number;
   y: number;
   parent?: string;
+  hot?: boolean;
 }
-
-const nodes: TreeNode[] = [
-  { id: "root", label: "run()", cost: "$0.04", x: 50, y: 8 },
-  { id: "a", label: "plan", cost: "$0.31", x: 22, y: 32, parent: "root" },
-  { id: "b", label: "search", cost: "$0.12", x: 50, y: 32, parent: "root" },
-  { id: "c", label: "synth", cost: "$0.09", x: 78, y: 32, parent: "root" },
-  { id: "a1", label: "tool.web", cost: "$0.18", x: 10, y: 60, parent: "a" },
-  { id: "a2", label: "tool.code", cost: "$4.12", hot: true, x: 32, y: 60, parent: "a" },
-  { id: "b1", label: "rerank", cost: "$0.08", x: 50, y: 60, parent: "b" },
-  { id: "c1", label: "model.large", cost: "$0.22", x: 70, y: 60, parent: "c" },
-  { id: "c2", label: "tool.code", cost: "$3.91", hot: true, x: 88, y: 60, parent: "c" },
-  { id: "x1", label: "loop x14", cost: "$2.10", hot: true, x: 32, y: 86, parent: "a2" },
+const treeNodes: Node[] = [
+  { id: "root", label: "run()", cost: "$0.04", x: 50, y: 14 },
+  { id: "a", label: "plan", cost: "$0.31", x: 24, y: 46, parent: "root" },
+  { id: "b", label: "synth", cost: "$0.12", x: 76, y: 46, parent: "root" },
+  { id: "a1", label: "web", cost: "$0.18", x: 12, y: 82, parent: "a" },
+  { id: "a2", label: "code·loop", cost: "$4.12", x: 40, y: 82, parent: "a", hot: true },
+  { id: "b1", label: "model", cost: "$0.22", x: 76, y: 82, parent: "b" },
 ];
 
 export default function LandingPage() {
   return (
-    <div className="flex min-h-screen flex-col" style={{ backgroundColor: BG, color: "#e8dfcc" }}>
-      {/* Thin accent line */}
-      <div className="h-[2px] w-full" style={{ backgroundColor: ACCENT }} />
-
-      {/* Nav */}
-      <header className="border-b border-white/5">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-            <div
-              className="flex h-7 w-7 items-center justify-center rounded border font-serif font-bold text-sm"
-              style={{ borderColor: `${ACCENT}66`, color: ACCENT, backgroundColor: `${ACCENT}11` }}
-            >
-              A
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="font-serif text-base text-white tracking-wide">{appConfig.name}</span>
-              <span className="hidden sm:inline text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-                Tallinn
+    <div
+      className="min-h-screen font-mono text-[13px] leading-tight"
+      style={{ backgroundColor: BG, color: "#c9d1d9" }}
+    >
+      {/* ══ TOP TICKER BAR ══ A scrolling stock-ticker strip of fake cost feeds */}
+      <div
+        className="w-full overflow-hidden border-b whitespace-nowrap"
+        style={{ borderColor: GRID, backgroundColor: "#060708" }}
+      >
+        <div className="flex items-center">
+          <span
+            className="shrink-0 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] border-r"
+            style={{ backgroundColor: AMBER, color: "#0a0b0d", borderColor: GRID }}
+          >
+            COST·FEED
+          </span>
+          <div
+            className="flex items-center gap-0 py-1.5"
+            style={{ animation: "aic-marquee 38s linear infinite" }}
+          >
+            {[...ticker, ...ticker].map((t, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1.5 px-4 border-r tabular-nums text-[11px]"
+                style={{ borderColor: "#15181c" }}
+              >
+                <span style={{ color: DIM }}>{t.sym}</span>
+                <span style={{ color: tickColor(t.dir) }}>{t.px}</span>
+                <span style={{ color: tickColor(t.dir) }}>{tickGlyph(t.dir)}</span>
               </span>
-            </div>
+            ))}
           </div>
-          <div className="flex items-center gap-4">
-            <span className="hidden sm:inline text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-              aicapital.ee
-            </span>
-            <Link href="/login" className="text-sm text-slate-500 hover:text-slate-300 transition-colors">
-              Sign in
-            </Link>
-            <Link
-              href="/signup"
-              className="text-sm border rounded px-3 py-1.5 transition-colors hover:bg-white/5"
-              style={{ borderColor: `${ACCENT}55`, color: ACCENT }}
-            >
-              Get started
-            </Link>
-          </div>
+        </div>
+      </div>
+
+      {/* ══ BRAND ROW ══ ticker symbol + city + session, mono buttons right-aligned */}
+      <header
+        className="flex items-center justify-between gap-3 border-b px-3 py-2"
+        style={{ borderColor: GRID }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <span
+            className="text-sm font-bold tracking-[0.18em] uppercase"
+            style={{ color: AMBER }}
+          >
+            {appConfig.name}
+          </span>
+          <span className="hidden sm:inline text-[10px]" style={{ color: GRID }}>
+            ▌
+          </span>
+          <span
+            className="hidden sm:inline text-[10px] uppercase tracking-[0.25em]"
+            style={{ color: DIM }}
+          >
+            Tallinn 🇪🇪 · Hanse port
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-[11px]">
+          <span
+            className="hidden md:inline tabular-nums px-2 py-1 border"
+            style={{ borderColor: GRID, color: DIM }}
+          >
+            LIVE <span style={{ color: UP }}>●</span> 04:12:07 EET
+          </span>
+          <Link
+            href="/login"
+            className="px-2.5 py-1 border uppercase tracking-wider transition-colors hover:bg-white/5"
+            style={{ borderColor: GRID, color: "#9aa3b0" }}
+          >
+            sign in
+          </Link>
+          <Link
+            href="/signup"
+            className="px-2.5 py-1 border uppercase tracking-wider font-bold transition-colors"
+            style={{ borderColor: AMBER, color: "#0a0b0d", backgroundColor: AMBER }}
+          >
+            get started
+          </Link>
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="mx-auto max-w-5xl px-4 pt-20 pb-12 text-center">
-        <h1
-          className="font-serif text-6xl sm:text-8xl text-white tracking-tight leading-[1.0]"
-          style={{ fontFamily: 'ui-serif, Georgia, serif' }}
-        >
-          AI Capital
-        </h1>
-        <p className="mt-6 text-xl sm:text-2xl text-slate-300 font-serif italic max-w-2xl mx-auto leading-snug">
-          Linter for agentic logic that predicts hidden costs.
-        </p>
-        <p className="mt-6 text-sm font-mono text-slate-500 tracking-wide">
-          From Tallinn — Hanseatic trade port, now digital.
-        </p>
-      </section>
-
-      {/* Problem */}
-      <section className="mx-auto max-w-3xl px-4 pb-12 text-center">
-        <p className="text-xs font-mono uppercase tracking-[0.3em] text-slate-600 mb-3">
-          The problem
-        </p>
-        <p className="text-2xl font-serif text-white leading-snug">
-          Your agents burned $4,200 overnight. No one noticed.
-        </p>
-      </section>
-
-      {/* Agent task tree visual */}
-      <section className="mx-auto max-w-4xl w-full px-4 pb-12">
-        <div className="rounded-lg border border-white/10 overflow-hidden" style={{ backgroundColor: PANEL }}>
-          {/* Title bar with alert */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/5" style={{ backgroundColor: "#120f09" }}>
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full" style={{ backgroundColor: ACCENT }} />
-              <span className="text-xs font-mono uppercase tracking-widest text-slate-400">
-                agent.run #4821
+      {/* ══════════════════════════════════════════════════════════════════
+          HERO = MULTI-PANEL DASHBOARD GRID (the hero is the data, not a headline)
+          ══════════════════════════════════════════════════════════════════ */}
+      <main className="p-2 sm:p-3">
+        <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+          {/* ── PANEL A · AGENT TASK TREE ── */}
+          <Panel
+            tag="A"
+            title="AGENT TASK TREE"
+            right={
+              <span
+                className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                style={{ backgroundColor: `${HOT}1a`, color: HOT, border: `1px solid ${HOT}66` }}
+              >
+                ⚠ $4,200 OVER BUDGET
               </span>
-            </div>
-            <span
-              className="text-[10px] font-mono px-2 py-1 rounded uppercase tracking-widest border"
-              style={{ color: "#ff7070", borderColor: "#ff707055", backgroundColor: "#ff707011" }}
-            >
-              Warning: $4,200 over budget
-            </span>
-          </div>
-
-          {/* Tree SVG */}
-          <div className="relative w-full" style={{ paddingBottom: "55%" }}>
-            <svg
-              viewBox="0 0 100 100"
-              preserveAspectRatio="none"
-              className="absolute inset-0 w-full h-full"
-            >
-              {/* Edges */}
-              {nodes.map((n) => {
-                if (!n.parent) return null;
-                const parent = nodes.find((p) => p.id === n.parent)!;
-                const hot = n.hot;
-                return (
-                  <line
-                    key={`edge-${n.id}`}
-                    x1={parent.x}
-                    y1={parent.y}
-                    x2={n.x}
-                    y2={n.y}
-                    stroke={hot ? "#ff7070" : "#3a3428"}
-                    strokeWidth={hot ? 0.4 : 0.2}
-                    vectorEffect="non-scaling-stroke"
-                    opacity={hot ? 0.8 : 0.7}
-                  />
-                );
-              })}
-            </svg>
-
-            {/* HTML overlay nodes for crisp text */}
-            <div className="absolute inset-0">
-              {nodes.map((n) => (
-                <div
-                  key={n.id}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center"
-                  style={{ left: `${n.x}%`, top: `${n.y}%` }}
-                >
+            }
+          >
+            <div className="relative w-full" style={{ height: 210 }}>
+              <svg
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+                className="absolute inset-0 h-full w-full"
+              >
+                {treeNodes.map((n) => {
+                  if (!n.parent) return null;
+                  const p = treeNodes.find((x) => x.id === n.parent)!;
+                  return (
+                    <line
+                      key={`e-${n.id}`}
+                      x1={p.x}
+                      y1={p.y}
+                      x2={n.x}
+                      y2={n.y}
+                      stroke={n.hot ? HOT : "#2a2f37"}
+                      strokeWidth={n.hot ? 0.7 : 0.35}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  );
+                })}
+              </svg>
+              <div className="absolute inset-0">
+                {treeNodes.map((n) => (
                   <div
-                    className="rounded-full border flex items-center justify-center"
-                    style={{
-                      width: n.hot ? 14 : 10,
-                      height: n.hot ? 14 : 10,
-                      borderColor: n.hot ? "#ff7070" : `${ACCENT}66`,
-                      backgroundColor: n.hot ? "#ff707022" : `${ACCENT}11`,
-                      boxShadow: n.hot ? "0 0 12px #ff707066" : "none",
-                    }}
-                  />
-                  <span className="mt-1 text-[9px] font-mono text-slate-300 whitespace-nowrap">
-                    {n.label}
-                  </span>
-                  <span
-                    className="text-[9px] font-mono whitespace-nowrap tabular-nums"
-                    style={{ color: n.hot ? "#ff7070" : ACCENT }}
+                    key={n.id}
+                    className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
+                    style={{ left: `${n.x}%`, top: `${n.y}%` }}
                   >
-                    {n.cost}
+                    <div
+                      className="rounded-sm"
+                      style={{
+                        width: n.hot ? 13 : 9,
+                        height: n.hot ? 13 : 9,
+                        backgroundColor: n.hot ? `${HOT}33` : `${AMBER}22`,
+                        border: `1px solid ${n.hot ? HOT : `${AMBER}88`}`,
+                        boxShadow: n.hot ? `0 0 14px ${HOT}aa` : "none",
+                      }}
+                    />
+                    <span className="mt-1 text-[9px] whitespace-nowrap" style={{ color: "#9aa3b0" }}>
+                      {n.label}
+                    </span>
+                    <span
+                      className="text-[9px] tabular-nums whitespace-nowrap"
+                      style={{ color: n.hot ? HOT : AMBER }}
+                    >
+                      {n.cost}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <PanelFoot left="predicted cost / branch" right="depth=3 · 6 nodes" />
+          </Panel>
+
+          {/* ── PANEL B · COST FORECAST ── */}
+          <Panel
+            tag="B"
+            title="COST FORECAST"
+            right={<span className="text-[9px]" style={{ color: DOWN }}>PROJ ▲ +218%</span>}
+          >
+            <div className="relative w-full" style={{ height: 210 }}>
+              {/* red budget ceiling line */}
+              <div
+                className="absolute left-0 right-0 flex items-center"
+                style={{ top: "22%" }}
+              >
+                <div className="h-px w-full" style={{ backgroundColor: HOT, opacity: 0.7 }} />
+                <span
+                  className="absolute right-0 -top-3.5 px-1 text-[9px] tabular-nums"
+                  style={{ color: HOT }}
+                >
+                  ceiling $4,200
+                </span>
+              </div>
+              <div className="absolute inset-0 flex items-end gap-[3px] px-1 pb-px">
+                {forecastBars.map((h, i) => {
+                  const breach = i >= CEILING_AT;
+                  return (
+                    <div key={i} className="flex flex-1 flex-col items-center justify-end">
+                      <div
+                        className="w-full"
+                        style={{
+                          height: `${h}%`,
+                          backgroundColor: breach ? HOT : AMBER,
+                          opacity: breach ? 0.92 : 0.32 + i * 0.05,
+                          boxShadow: breach ? `0 0 10px ${HOT}66` : "none",
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <PanelFoot left="cum. spend → projected" right="t+10 iterations" />
+          </Panel>
+
+          {/* ── PANEL C · LINT OUTPUT ── terminal block */}
+          <Panel tag="C" title="LINT OUTPUT" mono>
+            <pre className="overflow-x-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.65]">
+              <span style={{ color: DIM }}>$</span>{" "}
+              <span style={{ color: AMBER }}>aicapital lint</span>{" "}
+              <span style={{ color: "#c9d1d9" }}>./agent-loop.ts</span>
+              {"\n"}
+              <span style={{ color: HOT }}>⚠</span>{" "}
+              <span style={{ color: "#e6edf3" }}>line 42</span> — projected cost:{" "}
+              <span style={{ color: HOT }} className="tabular-nums">$4,287</span>
+              {"\n"}
+              {"  └ "}recursion depth:{" "}
+              <span style={{ color: AMBER }}>unbounded</span>
+              {"\n"}
+              {"  └ "}model:{" "}
+              <span style={{ color: AMBER }}>claude</span>{" "}
+              <span style={{ color: DIM }}>(downgrade → haiku?)</span>
+              {"\n"}
+              {"  └ "}<span className="tabular-nums">18</span> tool calls / iteration
+              {"\n"}
+              <span style={{ color: UP }}>✔</span> suggested fix →{" "}
+              <span style={{ color: UP }} className="tabular-nums">$127</span>
+              {"\n"}
+              <span style={{ color: DIM }}>{"  "}─────────────────────────────</span>
+              {"\n"}
+              <span style={{ color: DIM }}>{"  "}saved/run </span>
+              <span style={{ color: UP }} className="tabular-nums">$4,160</span>
+              <span style={{ color: DIM }}> · static · 63ms</span>
+            </pre>
+            <PanelFoot left="aicapital@v0 — pre-flight" right="exit 1 · 1 warning" />
+          </Panel>
+
+          {/* ── PANEL D · BUDGET GUARD ── gauge/meter at 96% amber→red */}
+          <Panel
+            tag="D"
+            title="BUDGET GUARD"
+            right={<span className="text-[9px] tabular-nums" style={{ color: HOT }}>96% · CRITICAL</span>}
+          >
+            <div className="flex flex-col items-center justify-center px-3 py-4" style={{ height: 210 }}>
+              {/* semicircle gauge */}
+              <div className="relative" style={{ width: 220, height: 118 }}>
+                <svg viewBox="0 0 200 110" className="h-full w-full">
+                  <path
+                    d="M 14 100 A 86 86 0 0 1 186 100"
+                    fill="none"
+                    stroke="#1c2026"
+                    strokeWidth="14"
+                    strokeLinecap="round"
+                  />
+                  {/* 96% arc — gradient amber→red */}
+                  <defs>
+                    <linearGradient id="aic-gauge" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor={AMBER} />
+                      <stop offset="70%" stopColor={AMBER} />
+                      <stop offset="100%" stopColor={HOT} />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    d="M 14 100 A 86 86 0 0 1 186 100"
+                    fill="none"
+                    stroke="url(#aic-gauge)"
+                    strokeWidth="14"
+                    strokeLinecap="round"
+                    strokeDasharray="270"
+                    strokeDashoffset={270 * (1 - 0.96)}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-end pb-1">
+                  <span className="text-3xl font-bold tabular-nums" style={{ color: HOT }}>
+                    96<span className="text-lg">%</span>
+                  </span>
+                  <span className="text-[9px] uppercase tracking-[0.2em]" style={{ color: DIM }}>
+                    of budget consumed
                   </span>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Legend */}
-          <div className="px-4 py-3 border-t border-white/5 flex items-center justify-between text-[10px] font-mono uppercase tracking-widest">
-            <span className="text-slate-500">predicted execution cost per branch</span>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5">
-                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: ACCENT }} />
-                <span className="text-slate-500">nominal</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: "#ff7070" }} />
-                <span className="text-slate-500">hot path</span>
+              <div className="mt-2 grid w-full grid-cols-3 gap-2 text-center text-[10px]">
+                <GuardStat label="spent" value="$4,032" color={HOT} />
+                <GuardStat label="cap" value="$4,200" color="#9aa3b0" />
+                <GuardStat label="left" value="$168" color={AMBER} />
               </div>
             </div>
-          </div>
+            <PanelFoot left="auto-halt at 100%" right="policy: hard-stop" />
+          </Panel>
         </div>
-      </section>
 
-      {/* Lint output code block */}
-      <section className="mx-auto max-w-4xl w-full px-4 pb-12">
-        <div className="rounded-lg border border-white/10 overflow-hidden" style={{ backgroundColor: "#08060a" }}>
-          <div className="flex items-center justify-between px-4 py-2 border-b border-white/5" style={{ backgroundColor: "#000" }}>
-            <div className="flex items-center gap-1.5">
-              <div className="h-2.5 w-2.5 rounded-full bg-red-500/60" />
-              <div className="h-2.5 w-2.5 rounded-full bg-yellow-500/60" />
-              <div className="h-2.5 w-2.5 rounded-full bg-green-500/60" />
-            </div>
-            <span className="text-[10px] font-mono text-slate-600 uppercase tracking-widest">
-              terminal
-            </span>
+        {/* ── ONE modest headline UNDER the dashboard grid ── */}
+        <section
+          className="mt-2 flex flex-col gap-2 border px-4 py-5 sm:flex-row sm:items-end sm:justify-between"
+          style={{ borderColor: GRID, backgroundColor: PANEL }}
+        >
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight" style={{ color: "#e6edf3" }}>
+              See the bill before the agent runs.
+            </h1>
+            <p className="mt-1.5 text-[12px]" style={{ color: DIM }}>
+              Linter for agentic logic that predicts hidden costs — static analysis, before a
+              single token is spent.
+            </p>
           </div>
-          <pre className="text-xs sm:text-sm font-mono p-5 leading-relaxed overflow-x-auto text-slate-300">
-            <span className="text-slate-500">$</span> <span style={{ color: ACCENT }}>aicapital lint</span> ./agent-loop.ts{"\n"}
-            <span style={{ color: "#ff7070" }}>{"⚠"}</span> <span className="text-white">Loop at line 42</span> — projected cost: <span style={{ color: "#ff7070" }}>$4,287</span>{"\n"}
-            {"  └ recursion depth: "}<span className="text-amber-300">unbounded</span>{"\n"}
-            {"  └ model: "}<span className="text-amber-300">claude-3.5-sonnet</span>{" (use haiku?)"}{"\n"}
-            {"  └ tool calls per iteration: "}<span className="text-amber-300">18</span>{"\n"}
-            {"\n"}
-            <span style={{ color: ACCENT }}>Suggestion:</span> add <span className="text-white">max_depth=10</span> or downgrade model tier.{"\n"}
-          </pre>
-        </div>
-      </section>
-
-      {/* Before/after */}
-      <section className="border-t border-white/5">
-        <div className="mx-auto max-w-5xl px-4 py-20">
-          <p className="text-xs font-mono uppercase tracking-[0.3em] text-slate-600 mb-3 text-center">
-            Forecast vs reality
-          </p>
-          <h2 className="text-center text-3xl font-serif text-white mb-12">
-            Predict the spend before it happens.
-          </h2>
-          <div className="grid md:grid-cols-[1fr_auto_1fr] gap-6 items-stretch max-w-3xl mx-auto">
-            <div className="rounded-lg border border-red-500/30 bg-red-500/[0.04] p-6 text-center">
-              <p className="text-xs font-mono uppercase tracking-widest text-red-400 mb-3">
-                Without AI Capital
-              </p>
-              <p className="font-serif text-5xl text-white tabular-nums">$4,287</p>
-              <p className="mt-3 text-sm text-slate-400 font-mono">forecast for this run</p>
-            </div>
-            <div className="flex items-center justify-center">
-              <svg viewBox="0 0 24 24" className="h-6 w-6 text-slate-600 rotate-90 md:rotate-0" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <div className="rounded-lg border p-6 text-center" style={{ borderColor: `${ACCENT}55`, backgroundColor: `${ACCENT}08` }}>
-              <p className="text-xs font-mono uppercase tracking-widest mb-3" style={{ color: ACCENT }}>
-                With suggested fix
-              </p>
-              <p className="font-serif text-5xl text-white tabular-nums">$127</p>
-              <p className="mt-3 text-sm text-slate-400 font-mono">97% reduction</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Stats */}
-      <section className="border-t border-white/5">
-        <div className="mx-auto max-w-5xl px-4 py-20">
-          <div className="grid sm:grid-cols-2 gap-12 text-center">
-            <div>
-              <p className="font-serif text-5xl text-white tabular-nums" style={{ color: ACCENT }}>$2.4M</p>
-              <p className="mt-3 text-xs font-mono uppercase tracking-widest text-slate-500">
-                in agent loops prevented
-              </p>
-            </div>
-            <div>
-              <p className="font-serif text-5xl text-white tabular-nums" style={{ color: ACCENT }}>18,000</p>
-              <p className="mt-3 text-xs font-mono uppercase tracking-widest text-slate-500">
-                budgets enforced
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="border-t border-white/5">
-        <div className="mx-auto max-w-5xl px-4 py-20 text-center">
           <Link
             href="/signup"
-            className="inline-flex items-center gap-2 border-2 rounded px-8 py-4 text-lg font-medium transition-colors hover:bg-white/5"
-            style={{ borderColor: ACCENT, color: ACCENT }}
+            className="shrink-0 self-start px-4 py-2 text-[12px] font-bold uppercase tracking-wider transition-opacity hover:opacity-90"
+            style={{ backgroundColor: AMBER, color: "#0a0b0d" }}
           >
-            Lint your first agent
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M5 12h14M12 5l7 7-7 7" />
-            </svg>
+            $ aicapital lint →
           </Link>
-        </div>
-      </section>
+        </section>
 
-      {/* Footer */}
-      <footer className="border-t border-white/5 mt-auto">
-        <div className="mx-auto flex flex-col sm:flex-row gap-3 sm:gap-0 h-auto sm:h-16 max-w-6xl items-center justify-between px-4 py-4 sm:py-0">
-          <div className="flex items-center gap-3 text-xs text-slate-600 font-mono">
-            <span style={{ color: ACCENT }}>{appConfig.name}</span>
-            <span>·</span>
-            <span>Tallinn</span>
-            <span>·</span>
-            <span>aicapital.ee</span>
-          </div>
-          <a
-            href="https://abduljaleel.xyz/aletheia/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[10px] font-mono uppercase tracking-widest text-slate-500 hover:text-white border border-white/10 rounded px-3 py-1.5 transition-colors hover:border-white/30"
-          >
-            Part of the Aletheia stack &#8599;
-          </a>
+        {/* ── thin numeric ribbon ── */}
+        <div
+          className="mt-2 grid grid-cols-1 divide-y border text-[11px] sm:grid-cols-3 sm:divide-x sm:divide-y-0"
+          style={{ borderColor: GRID, backgroundColor: PANEL_HEAD }}
+        >
+          <Ribbon value="$2.4M" label="runaway loops prevented" />
+          <Ribbon value="18,000" label="budgets enforced" />
+          <Ribbon value="63ms" label="static analysis / run" />
         </div>
+      </main>
+
+      {/* ══ FOOTER ══ mono, terminal status-bar style */}
+      <footer
+        className="mt-2 flex flex-col gap-2 border-t px-3 py-3 text-[10px] sm:flex-row sm:items-center sm:justify-between"
+        style={{ borderColor: GRID, backgroundColor: "#060708", color: DIM }}
+      >
+        <div className="flex items-center gap-2 uppercase tracking-[0.2em]">
+          <span style={{ color: AMBER }}>{appConfig.name}</span>
+          <span style={{ color: GRID }}>·</span>
+          <span>Tallinn</span>
+          <span style={{ color: GRID }}>·</span>
+          <span>aicapital.ee</span>
+        </div>
+        <a
+          href="https://abduljaleel.xyz/aletheia/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="self-start border px-2.5 py-1 uppercase tracking-[0.2em] transition-colors hover:text-white sm:self-auto"
+          style={{ borderColor: GRID }}
+        >
+          Part of the Aletheia stack ↗
+        </a>
       </footer>
+
+      {/* marquee keyframes (Tailwind v4 — inline style tag, no config edit) */}
+      <style>{`
+        @keyframes aic-marquee {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+/* ── Reusable terminal panel chrome ── */
+function Panel({
+  tag,
+  title,
+  right,
+  children,
+  mono,
+}: {
+  tag: string;
+  title: string;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <section className="border" style={{ borderColor: GRID, backgroundColor: mono ? "#060708" : PANEL }}>
+      <div
+        className="flex items-center justify-between border-b px-2.5 py-1.5"
+        style={{ borderColor: GRID, backgroundColor: PANEL_HEAD }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="flex h-4 w-4 items-center justify-center text-[9px] font-bold"
+            style={{ backgroundColor: `${AMBER}22`, color: AMBER, border: `1px solid ${AMBER}55` }}
+          >
+            {tag}
+          </span>
+          <span className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "#9aa3b0" }}>
+            {title}
+          </span>
+        </div>
+        {right}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function PanelFoot({ left, right }: { left: string; right: string }) {
+  return (
+    <div
+      className="flex items-center justify-between border-t px-2.5 py-1.5 text-[9px] uppercase tracking-[0.18em]"
+      style={{ borderColor: GRID, color: DIM }}
+    >
+      <span>{left}</span>
+      <span>{right}</span>
+    </div>
+  );
+}
+
+function GuardStat({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div className="border px-1 py-1" style={{ borderColor: GRID }}>
+      <div className="tabular-nums text-[12px] font-bold" style={{ color }}>
+        {value}
+      </div>
+      <div className="text-[8px] uppercase tracking-[0.2em]" style={{ color: DIM }}>
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function Ribbon({ value, label }: { value: string; label: string }) {
+  return (
+    <div className="flex items-baseline gap-2 px-4 py-3" style={{ borderColor: GRID }}>
+      <span className="tabular-nums text-lg font-bold" style={{ color: AMBER }}>
+        {value}
+      </span>
+      <span className="uppercase tracking-[0.18em]" style={{ color: DIM }}>
+        {label}
+      </span>
     </div>
   );
 }
