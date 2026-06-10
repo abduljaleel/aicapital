@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, use } from "react";
+import { useState, useEffect, useRef, use } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Select,
@@ -18,7 +19,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  getDecisionById,
+  getDecision,
+  createScenario,
+  updateScenario,
+  createEvidence,
+  createJournalEntry,
+} from "@/lib/data/api";
+import {
   type Decision,
   type Scenario,
   type Evidence,
@@ -54,7 +61,62 @@ export default function DecisionWorkspacePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const decision = getDecisionById(id);
+  const [decision, setDecision] = useState<Decision | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getDecision(id)
+      .then((d) => {
+        if (!cancelled) setDecision(d);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load decision");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-start gap-4">
+          <Skeleton className="h-8 w-8 rounded-md mt-1" />
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-72" />
+            <Skeleton className="h-4 w-56" />
+          </div>
+        </div>
+        <Skeleton className="h-9 w-96" />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Skeleton className="h-48 rounded-xl" />
+          <Skeleton className="h-48 rounded-xl" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <Link href="/decisions">
+          <Button variant="ghost" size="icon-sm">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </Link>
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      </div>
+    );
+  }
 
   if (!decision) {
     notFound();
@@ -223,34 +285,60 @@ function ScenariosTab({ decision }: { decision: Decision }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const persistTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  const handleAddScenario = () => {
-    if (!newName.trim()) return;
-    const newScenario: Scenario = {
-      id: `sc-new-${Date.now()}`,
-      name: newName,
-      description: newDesc,
-      assumptions: [],
-      projectedOutcomes: [],
-      probability: 50,
-      score: 50,
+  useEffect(() => {
+    const timers = persistTimers.current;
+    return () => {
+      Object.values(timers).forEach(clearTimeout);
     };
-    setScenarios([...scenarios, newScenario]);
-    setNewName("");
-    setNewDesc("");
-    setShowAdd(false);
+  }, []);
+
+  const queuePersist = (key: string, fn: () => Promise<void>) => {
+    const existing = persistTimers.current[key];
+    if (existing) clearTimeout(existing);
+    persistTimers.current[key] = setTimeout(() => {
+      delete persistTimers.current[key];
+      fn().catch((e) =>
+        setError(e instanceof Error ? e.message : "Failed to save scenario changes")
+      );
+    }, 500);
+  };
+
+  const handleAddScenario = async () => {
+    if (!newName.trim() || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const newScenario = await createScenario(decision.id, {
+        name: newName,
+        description: newDesc,
+      });
+      setScenarios([...scenarios, newScenario]);
+      setNewName("");
+      setNewDesc("");
+      setShowAdd(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to add scenario");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const updateProbability = (id: string, value: number) => {
     setScenarios(
       scenarios.map((s) => (s.id === id ? { ...s, probability: value } : s))
     );
+    queuePersist(`${id}:probability`, () => updateScenario(id, { probability: value }));
   };
 
   const updateScore = (id: string, value: number) => {
     setScenarios(
       scenarios.map((s) => (s.id === id ? { ...s, score: value } : s))
     );
+    queuePersist(`${id}:score`, () => updateScenario(id, { score: value }));
   };
 
   return (
@@ -264,6 +352,12 @@ function ScenariosTab({ decision }: { decision: Decision }) {
           Add Scenario
         </Button>
       </div>
+
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
 
       {showAdd && (
         <Card>
@@ -280,8 +374,8 @@ function ScenariosTab({ decision }: { decision: Decision }) {
               rows={2}
             />
             <div className="flex gap-2">
-              <Button size="sm" onClick={handleAddScenario} disabled={!newName.trim()}>
-                Add
+              <Button size="sm" onClick={handleAddScenario} disabled={!newName.trim() || saving}>
+                {saving ? "Adding..." : "Add"}
               </Button>
               <Button size="sm" variant="outline" onClick={() => setShowAdd(false)}>
                 Cancel
@@ -432,20 +526,28 @@ function EvidenceTab({ decision }: { decision: Decision }) {
   const [newSourceType, setNewSourceType] = useState<SourceType>("research");
   const [newRelevance, setNewRelevance] = useState<EvidenceRelevance>("medium");
   const [newSentiment, setNewSentiment] = useState<EvidenceSentiment>("neutral");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleAdd = () => {
-    if (!newContent.trim()) return;
-    const item: Evidence = {
-      id: `ev-new-${Date.now()}`,
-      sourceType: newSourceType,
-      content: newContent,
-      relevance: newRelevance,
-      sentiment: newSentiment,
-      addedAt: new Date().toISOString().split("T")[0],
-    };
-    setEvidence([item, ...evidence]);
-    setNewContent("");
-    setShowAdd(false);
+  const handleAdd = async () => {
+    if (!newContent.trim() || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const item = await createEvidence(decision.id, {
+        sourceType: newSourceType,
+        content: newContent,
+        relevance: newRelevance,
+        sentiment: newSentiment,
+      });
+      setEvidence([item, ...evidence]);
+      setNewContent("");
+      setShowAdd(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to add evidence");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -459,6 +561,12 @@ function EvidenceTab({ decision }: { decision: Decision }) {
           Add Evidence
         </Button>
       </div>
+
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
 
       {showAdd && (
         <Card>
@@ -507,8 +615,8 @@ function EvidenceTab({ decision }: { decision: Decision }) {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button size="sm" onClick={handleAdd} disabled={!newContent.trim()}>
-                Add Evidence
+              <Button size="sm" onClick={handleAdd} disabled={!newContent.trim() || saving}>
+                {saving ? "Adding..." : "Add Evidence"}
               </Button>
               <Button size="sm" variant="outline" onClick={() => setShowAdd(false)}>
                 Cancel
@@ -900,20 +1008,27 @@ function JournalTab({ decision }: { decision: Decision }) {
   const [newContent, setNewContent] = useState("");
   const [newType, setNewType] = useState<"rationale" | "update" | "outcome_review">("update");
   const [newConfidence, setNewConfidence] = useState(decision.confidence);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleAdd = () => {
-    if (!newContent.trim()) return;
-    const entry: JournalEntry = {
-      id: `je-new-${Date.now()}`,
-      decisionId: decision.id,
-      type: newType,
-      content: newContent,
-      confidence: newConfidence,
-      createdAt: new Date().toISOString().split("T")[0],
-    };
-    setEntries([entry, ...entries]);
-    setNewContent("");
-    setShowAdd(false);
+  const handleAdd = async () => {
+    if (!newContent.trim() || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const entry = await createJournalEntry(decision.id, {
+        type: newType,
+        content: newContent,
+        confidence: newConfidence,
+      });
+      setEntries([entry, ...entries]);
+      setNewContent("");
+      setShowAdd(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to add journal entry");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const typeLabels: Record<string, string> = {
@@ -933,6 +1048,12 @@ function JournalTab({ decision }: { decision: Decision }) {
           Add Entry
         </Button>
       </div>
+
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
 
       {showAdd && (
         <Card>
@@ -968,8 +1089,8 @@ function JournalTab({ decision }: { decision: Decision }) {
               rows={4}
             />
             <div className="flex gap-2">
-              <Button size="sm" onClick={handleAdd} disabled={!newContent.trim()}>
-                Add Entry
+              <Button size="sm" onClick={handleAdd} disabled={!newContent.trim() || saving}>
+                {saving ? "Adding..." : "Add Entry"}
               </Button>
               <Button size="sm" variant="outline" onClick={() => setShowAdd(false)}>
                 Cancel

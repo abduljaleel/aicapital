@@ -1,6 +1,9 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { frameworks } from "@/lib/data/decisions";
+import { Skeleton } from "@/components/ui/skeleton";
+import { listFrameworks, ensureStandardFrameworks, type FrameworkRecord } from "@/lib/data/api";
 import {
   Grid2x2,
   Scale,
@@ -26,6 +29,33 @@ const complexityColors: Record<string, string> = {
 };
 
 export default function FrameworksPage() {
+  const [frameworks, setFrameworks] = useState<FrameworkRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        let rows = await listFrameworks();
+        if (rows.length === 0) {
+          // First use: seed the standard framework catalog for this org
+          await ensureStandardFrameworks();
+          rows = await listFrameworks();
+        }
+        if (!cancelled) setFrameworks(rows);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load frameworks");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
       <div>
@@ -35,9 +65,19 @@ export default function FrameworksPage() {
         </p>
       </div>
 
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {frameworks.map((fw) => (
-          <Card key={fw.id} className="flex flex-col">
+        {loading &&
+          [0, 1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={`skeleton-${i}`} className="h-64 rounded-xl" />
+          ))}
+        {!loading && frameworks.map((fw) => (
+          <Card key={fw.dbId} className="flex flex-col">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
@@ -63,6 +103,12 @@ export default function FrameworksPage() {
           </Card>
         ))}
       </div>
+
+      {!loading && !error && frameworks.length === 0 && (
+        <p className="text-sm text-muted-foreground text-center py-16">
+          No frameworks available yet.
+        </p>
+      )}
     </div>
   );
 }

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -19,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { sampleDecisions, type DecisionType, type DecisionStatus } from "@/lib/data/decisions";
+import { listDecisions } from "@/lib/data/api";
+import { type Decision, type DecisionType, type DecisionStatus } from "@/lib/data/decisions";
 import { Plus } from "lucide-react";
 
 const typeOptions: { value: DecisionType | "all"; label: string }[] = [
@@ -54,8 +56,28 @@ const confidenceColor = (confidence: number) => {
 export default function DecisionsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const filtered = sampleDecisions.filter((d) => {
+  useEffect(() => {
+    let cancelled = false;
+    listDecisions()
+      .then((rows) => {
+        if (!cancelled) setDecisions(rows);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load decisions");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const filtered = decisions.filter((d) => {
     if (typeFilter !== "all" && d.type !== typeFilter) return false;
     if (statusFilter !== "all" && d.status !== statusFilter) return false;
     return true;
@@ -106,6 +128,12 @@ export default function DecisionsPage() {
         </Select>
       </div>
 
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+
       {/* Table */}
       <div className="rounded-lg border">
         <Table>
@@ -119,7 +147,17 @@ export default function DecisionsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((decision) => (
+            {loading &&
+              [0, 1, 2].map((i) => (
+                <TableRow key={`skeleton-${i}`}>
+                  {[0, 1, 2, 3, 4].map((j) => (
+                    <TableCell key={j}>
+                      <Skeleton className="h-4 w-full max-w-32" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            {!loading && filtered.map((decision) => (
               <TableRow key={decision.id}>
                 <TableCell>
                   <Link
@@ -154,10 +192,12 @@ export default function DecisionsPage() {
                 </TableCell>
               </TableRow>
             ))}
-            {filtered.length === 0 && (
+            {!loading && filtered.length === 0 && (
               <TableRow>
                 <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                  No decisions match the current filters.
+                  {decisions.length === 0
+                    ? "No decisions yet. Create your first decision to get started."
+                    : "No decisions match the current filters."}
                 </TableCell>
               </TableRow>
             )}

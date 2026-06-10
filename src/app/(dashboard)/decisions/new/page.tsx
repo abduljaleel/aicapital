@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/select";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
+import { createDecision } from "@/lib/data/api";
+import { type DecisionType } from "@/lib/data/decisions";
 
 export default function NewDecisionPage() {
   const router = useRouter();
@@ -23,12 +25,29 @@ export default function NewDecisionPage() {
   const [description, setDescription] = useState("");
   const [type, setType] = useState("strategic");
   const [stakeholders, setStakeholders] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // In a real app, this would save to the database
-    // For now, redirect to the first sample decision as a demo
-    router.push("/decisions/dec-001");
+    if (submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const decision = await createDecision({
+        title: title.trim(),
+        description: description.trim(),
+        type: type as DecisionType,
+        stakeholders: stakeholders
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      });
+      router.push(`/decisions/${decision.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create decision");
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -116,9 +135,15 @@ export default function NewDecisionPage() {
               </p>
             </div>
 
+            {error && (
+              <p className="text-sm text-destructive" role="alert">
+                {error}
+              </p>
+            )}
+
             <div className="flex gap-3 pt-2">
-              <Button type="submit" disabled={!title.trim()}>
-                Create Decision
+              <Button type="submit" disabled={!title.trim() || submitting}>
+                {submitting ? "Creating..." : "Create Decision"}
               </Button>
               <Link href="/decisions">
                 <Button type="button" variant="outline">

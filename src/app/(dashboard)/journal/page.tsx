@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -11,7 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getAllJournalEntries, type JournalEntryType } from "@/lib/data/decisions";
+import { listJournalEntries } from "@/lib/data/api";
+import { type JournalEntry, type JournalEntryType } from "@/lib/data/decisions";
 import { BookOpen, Lightbulb, RefreshCw, CheckCircle2 } from "lucide-react";
 
 const entryTypeConfig: Record<
@@ -44,7 +46,26 @@ const filterOptions: { value: JournalEntryType | "all"; label: string }[] = [
 
 export default function JournalPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
-  const allEntries = getAllJournalEntries();
+  const [allEntries, setAllEntries] = useState<(JournalEntry & { decisionTitle: string })[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listJournalEntries()
+      .then((rows) => {
+        if (!cancelled) setAllEntries(rows);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load journal entries");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filtered = allEntries.filter((entry) => {
     if (typeFilter !== "all" && entry.type !== typeFilter) return false;
@@ -75,8 +96,24 @@ export default function JournalPage() {
         </Select>
       </div>
 
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+
       <div className="space-y-4">
-        {filtered.map((entry) => {
+        {loading &&
+          [0, 1, 2].map((i) => (
+            <Card key={`skeleton-${i}`}>
+              <CardContent className="pt-4 space-y-2">
+                <Skeleton className="h-5 w-64" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-48" />
+              </CardContent>
+            </Card>
+          ))}
+        {!loading && filtered.map((entry) => {
           const config = entryTypeConfig[entry.type];
           return (
             <Card key={entry.id}>
@@ -117,7 +154,7 @@ export default function JournalPage() {
           );
         })}
 
-        {filtered.length === 0 && (
+        {!loading && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <BookOpen className="h-10 w-10 mb-4" />
             <p className="text-lg font-medium">No journal entries yet</p>

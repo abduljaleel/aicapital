@@ -1,9 +1,13 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { sampleDecisions } from "@/lib/data/decisions";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getCurrentUser, listDecisions, seedDemoData } from "@/lib/data/api";
+import { type Decision } from "@/lib/data/decisions";
 import {
   Brain,
   CalendarClock,
@@ -11,22 +15,57 @@ import {
   Clock,
   Plus,
   ArrowRight,
+  Sparkles,
 } from "lucide-react";
 
-export default async function DashboardPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+export default function DashboardPage() {
+  const [userName, setUserName] = useState<string>("");
+  const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [seeding, setSeeding] = useState(false);
 
-  const activeDecisions = sampleDecisions.filter(
+  const load = useCallback(async () => {
+    try {
+      setError(null);
+      const [user, rows] = await Promise.all([getCurrentUser(), listDecisions()]);
+      setUserName(user.fullName || user.email.split("@")[0]);
+      setDecisions(rows);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load dashboard");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const handleSeed = async () => {
+    setSeeding(true);
+    setError(null);
+    try {
+      await seedDemoData();
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load demo data");
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  const activeDecisions = decisions.filter(
     (d) => d.status === "exploring" || d.status === "analyzing"
   );
-  const decidedThisMonth = sampleDecisions.filter(
+  const decidedThisMonth = decisions.filter(
     (d) => d.status === "decided" || d.status === "reviewed"
   );
-  const avgConfidence = Math.round(
-    sampleDecisions.reduce((sum, d) => sum + d.confidence, 0) / sampleDecisions.length
-  );
-  const pendingReviews = sampleDecisions.filter((d) => d.reviewDate);
+  const avgConfidence =
+    decisions.length > 0
+      ? Math.round(decisions.reduce((sum, d) => sum + d.confidence, 0) / decisions.length)
+      : 0;
+  const pendingReviews = decisions.filter((d) => d.reviewDate);
 
   const statusColors: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
     exploring: "outline",
@@ -35,13 +74,36 @@ export default async function DashboardPage() {
     reviewed: "default",
   };
 
+  if (loading) {
+    return (
+      <div className="space-y-8">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-9 w-56" />
+            <Skeleton className="h-4 w-40" />
+          </div>
+          <Skeleton className="h-9 w-36" />
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-28 rounded-xl" />
+          ))}
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Skeleton className="h-72 rounded-xl" />
+          <Skeleton className="h-72 rounded-xl" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Decision Inbox</h1>
           <p className="text-muted-foreground">
-            Welcome back, {user?.user_metadata?.full_name || user?.email?.split("@")[0]}
+            Welcome back, {userName}
           </p>
         </div>
         <Link href="/decisions/new">
@@ -51,6 +113,12 @@ export default async function DashboardPage() {
           </Button>
         </Link>
       </div>
+
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
 
       {/* Metrics */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -97,7 +165,7 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {sampleDecisions.slice(0, 4).map((decision) => (
+              {decisions.slice(0, 4).map((decision) => (
                 <Link
                   key={decision.id}
                   href={`/decisions/${decision.id}`}
@@ -120,6 +188,18 @@ export default async function DashboardPage() {
                   </div>
                 </Link>
               ))}
+              {decisions.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <p className="text-sm font-medium">No decisions yet</p>
+                  <p className="text-xs text-muted-foreground mt-1 mb-4">
+                    Create your first decision or explore with demo data.
+                  </p>
+                  <Button variant="outline" size="sm" onClick={handleSeed} disabled={seeding}>
+                    <Sparkles className="mr-2 h-3.5 w-3.5" />
+                    {seeding ? "Loading demo data..." : "Load demo data"}
+                  </Button>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -132,7 +212,7 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {sampleDecisions
+              {decisions
                 .filter((d) => d.reviewDate)
                 .sort((a, b) => new Date(a.reviewDate!).getTime() - new Date(b.reviewDate!).getTime())
                 .map((decision) => (
@@ -158,7 +238,7 @@ export default async function DashboardPage() {
                     </div>
                   </Link>
                 ))}
-              {sampleDecisions.filter((d) => d.reviewDate).length === 0 && (
+              {decisions.filter((d) => d.reviewDate).length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-8">
                   No upcoming reviews scheduled
                 </p>
