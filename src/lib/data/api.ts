@@ -327,6 +327,8 @@ function mapDecision(row: DecisionRow): Decision {
     journalEntries: [...journalRows].sort(byCreatedAtAsc).map(mapJournalEntry),
     createdAt: row.created_at ?? new Date().toISOString(),
     reviewDate: row.review_date ?? undefined,
+    decidedAt: row.decided_at ?? undefined,
+    outcome: row.outcome ?? undefined,
   };
 }
 

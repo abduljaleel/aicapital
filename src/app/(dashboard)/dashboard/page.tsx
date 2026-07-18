@@ -55,17 +55,34 @@ export default function DashboardPage() {
     }
   };
 
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
   const activeDecisions = decisions.filter(
     (d) => d.status === "exploring" || d.status === "analyzing"
   );
   const decidedThisMonth = decisions.filter(
-    (d) => d.status === "decided" || d.status === "reviewed"
+    (d) =>
+      (d.status === "decided" || d.status === "reviewed") &&
+      d.decidedAt !== undefined &&
+      new Date(d.decidedAt) >= startOfMonth
   );
   const avgConfidence =
     decisions.length > 0
       ? Math.round(decisions.reduce((sum, d) => sum + d.confidence, 0) / decisions.length)
       : 0;
-  const pendingReviews = decisions.filter((d) => d.reviewDate);
+  // Only decisions with a future/today review date that haven't been reviewed yet.
+  const upcomingReviews = decisions
+    .filter(
+      (d) =>
+        d.reviewDate !== undefined &&
+        d.status !== "reviewed" &&
+        new Date(d.reviewDate) >= startOfToday
+    )
+    .sort(
+      (a, b) => new Date(a.reviewDate!).getTime() - new Date(b.reviewDate!).getTime()
+    );
 
   const statusColors: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
     exploring: "outline",
@@ -142,7 +159,7 @@ export default function DashboardPage() {
         />
         <MetricCard
           title="Pending Reviews"
-          value={String(pendingReviews.length)}
+          value={String(upcomingReviews.length)}
           description="Scheduled for review"
           icon={<CalendarClock className="h-4 w-4 text-muted-foreground" />}
         />
@@ -165,7 +182,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {decisions.slice(0, 4).map((decision) => (
+              {activeDecisions.slice(0, 4).map((decision) => (
                 <Link
                   key={decision.id}
                   href={`/decisions/${decision.id}`}
@@ -188,6 +205,11 @@ export default function DashboardPage() {
                   </div>
                 </Link>
               ))}
+              {activeDecisions.length === 0 && decisions.length > 0 && (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No active decisions — everything is decided or reviewed.
+                </p>
+              )}
               {decisions.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <p className="text-sm font-medium">No decisions yet</p>
@@ -212,33 +234,30 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {decisions
-                .filter((d) => d.reviewDate)
-                .sort((a, b) => new Date(a.reviewDate!).getTime() - new Date(b.reviewDate!).getTime())
-                .map((decision) => (
-                  <Link
-                    key={decision.id}
-                    href={`/decisions/${decision.id}`}
-                    className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium truncate">{decision.title}</p>
-                      <p className="text-xs text-muted-foreground mt-1 capitalize">
-                        {decision.type} &middot; {decision.status}
-                      </p>
-                    </div>
-                    <div className="ml-4 flex items-center gap-2 text-muted-foreground">
-                      <Clock className="h-3.5 w-3.5" />
-                      <span className="text-xs whitespace-nowrap">
-                        {new Date(decision.reviewDate!).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </span>
-                    </div>
-                  </Link>
-                ))}
-              {decisions.filter((d) => d.reviewDate).length === 0 && (
+              {upcomingReviews.map((decision) => (
+                <Link
+                  key={decision.id}
+                  href={`/decisions/${decision.id}`}
+                  className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium truncate">{decision.title}</p>
+                    <p className="text-xs text-muted-foreground mt-1 capitalize">
+                      {decision.type} &middot; {decision.status}
+                    </p>
+                  </div>
+                  <div className="ml-4 flex items-center gap-2 text-muted-foreground">
+                    <Clock className="h-3.5 w-3.5" />
+                    <span className="text-xs whitespace-nowrap">
+                      {new Date(decision.reviewDate!).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </span>
+                  </div>
+                </Link>
+              ))}
+              {upcomingReviews.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-8">
                   No upcoming reviews scheduled
                 </p>

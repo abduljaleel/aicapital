@@ -33,13 +33,22 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Redirect unauthenticated users to login (except public routes)
-  const publicPaths = ["/", "/login", "/signup", "/auth/callback", "/sitemap.xml", "/robots.txt"];
-  const isPublicPath = publicPaths.some(
-    (path) => request.nextUrl.pathname === path
+  // Only gate the real protected app routes (the (dashboard) group). Any other
+  // unknown path must fall through so Next.js can render the branded 404 page
+  // with a proper 404 status instead of bouncing anonymous visitors to /login.
+  const pathname = request.nextUrl.pathname;
+  const protectedPrefixes = [
+    "/dashboard",
+    "/decisions",
+    "/journal",
+    "/frameworks",
+    "/settings",
+  ];
+  const isProtected = protectedPrefixes.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
   );
 
-  if (!user && !isPublicPath) {
+  if (!user && isProtected) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

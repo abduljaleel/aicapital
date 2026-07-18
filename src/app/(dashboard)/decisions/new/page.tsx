@@ -106,7 +106,7 @@ export default function NewDecisionPage() {
 
             <div className="space-y-2">
               <Label>Decision Type</Label>
-              <Select value={type} onValueChange={(v) => setType(v ?? "all")}>
+              <Select value={type} onValueChange={(v) => setType(v ?? "strategic")}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>

@@ -48,6 +48,8 @@ export interface Decision {
   journalEntries: JournalEntry[];
   createdAt: string;
   reviewDate?: string;
+  decidedAt?: string;
+  outcome?: string;
 }
 
 export interface Framework {

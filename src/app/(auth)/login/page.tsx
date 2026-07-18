@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const supabase = createClient();
@@ -21,6 +22,7 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setMessage("");
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -41,6 +43,7 @@ export default function LoginPage() {
     }
     setLoading(true);
     setError("");
+    setMessage("");
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
@@ -53,9 +56,8 @@ export default function LoginPage() {
       return;
     }
 
-    setError("");
     setLoading(false);
-    alert("Check your email for the login link!");
+    setMessage(`Check your email — we sent a magic sign-in link to ${email}.`);
   }
 
   return (
@@ -70,6 +72,11 @@ export default function LoginPage() {
             {error && (
               <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                 {error}
+              </div>
+            )}
+            {message && (
+              <div className="rounded-md border border-green-600/30 bg-green-600/10 p-3 text-sm text-green-700 dark:text-green-400">
+                {message}
               </div>
             )}
             <div className="space-y-2">

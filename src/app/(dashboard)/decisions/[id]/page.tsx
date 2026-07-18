@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, use } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -22,11 +22,17 @@ import {
   getDecision,
   createScenario,
   updateScenario,
+  deleteScenario,
   createEvidence,
+  deleteEvidence,
   createJournalEntry,
+  deleteJournalEntry,
+  updateDecision,
+  deleteDecision,
 } from "@/lib/data/api";
 import {
   type Decision,
+  type DecisionStatus,
   type Scenario,
   type Evidence,
   type JournalEntry,
@@ -125,12 +131,100 @@ export default function DecisionWorkspacePage({
   return <DecisionWorkspace decision={decision} />;
 }
 
+const statusColors: Record<string, "default" | "secondary" | "outline"> = {
+  exploring: "outline",
+  analyzing: "secondary",
+  decided: "default",
+  reviewed: "default",
+};
+
 function DecisionWorkspace({ decision }: { decision: Decision }) {
-  const statusColors: Record<string, "default" | "secondary" | "outline"> = {
-    exploring: "outline",
-    analyzing: "secondary",
-    decided: "default",
-    reviewed: "default",
+  const router = useRouter();
+  const [status, setStatus] = useState<DecisionStatus>(decision.status);
+  const [reviewDate, setReviewDate] = useState<string>(
+    decision.reviewDate ? decision.reviewDate.slice(0, 10) : ""
+  );
+  const [outcome, setOutcome] = useState<string>(decision.outcome ?? "");
+  const [decidedAt, setDecidedAt] = useState<string | undefined>(decision.decidedAt);
+  const savedOutcomeRef = useRef(decision.outcome ?? "");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const save = async (fn: () => Promise<void>, okText: string) => {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      await fn();
+      setSaveMsg({ text: okText, ok: true });
+    } catch (e) {
+      setSaveMsg({
+        text: e instanceof Error ? e.message : "Failed to save changes",
+        ok: false,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleStatusChange = async (next: DecisionStatus) => {
+    const patch: { status: DecisionStatus; decidedAt?: string } = { status: next };
+    let nextDecidedAt = decidedAt;
+    if ((next === "decided" || next === "reviewed") && !decidedAt) {
+      nextDecidedAt = new Date().toISOString();
+      patch.decidedAt = nextDecidedAt;
+    }
+    setStatus(next);
+    setDecidedAt(nextDecidedAt);
+    await save(() => updateDecision(decision.id, patch), "Status updated");
+  };
+
+  const handleReviewDateChange = async (value: string) => {
+    setReviewDate(value);
+    await save(
+      () => updateDecision(decision.id, { reviewDate: value ? value : null }),
+      value ? "Review date set" : "Review date cleared"
+    );
+  };
+
+  const handleOutcomeBlur = async () => {
+    if (outcome === savedOutcomeRef.current) return;
+    savedOutcomeRef.current = outcome;
+    await save(
+      () => updateDecision(decision.id, { outcome: outcome ? outcome : null }),
+      "Outcome saved"
+    );
+  };
+
+  const handleDelete = async () => {
+    if (deleting) return;
+    if (
+      !window.confirm(
+        `Delete "${decision.title}"? This permanently removes the decision and all its scenarios, evidence, and journal entries.`
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    setSaveMsg(null);
+    try {
+      await deleteDecision(decision.id);
+      router.push("/decisions");
+    } catch (e) {
+      setSaveMsg({
+        text: e instanceof Error ? e.message : "Failed to delete decision",
+        ok: false,
+      });
+      setDeleting(false);
+    }
+  };
+
+  const liveDecision: Decision = {
+    ...decision,
+    status,
+    reviewDate: reviewDate || undefined,
+    decidedAt,
+    outcome: outcome || undefined,
   };
 
   return (
@@ -145,8 +239,8 @@ function DecisionWorkspace({ decision }: { decision: Decision }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold tracking-tight">{decision.title}</h1>
-            <Badge variant={statusColors[decision.status]} className="capitalize">
-              {decision.status}
+            <Badge variant={statusColors[status]} className="capitalize">
+              {status}
             </Badge>
             <Badge variant="outline" className="capitalize">
               {decision.type}
@@ -159,6 +253,87 @@ function DecisionWorkspace({ decision }: { decision: Decision }) {
         </div>
       </div>
 
+      {/* Lifecycle controls */}
+      <Card>
+        <CardContent className="pt-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="space-y-1">
+                <Label className="text-xs">Status</Label>
+                <Select
+                  value={status}
+                  onValueChange={(v) => handleStatusChange(v as DecisionStatus)}
+                >
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="exploring">Exploring</SelectItem>
+                    <SelectItem value="analyzing">Analyzing</SelectItem>
+                    <SelectItem value="decided">Decided</SelectItem>
+                    <SelectItem value="reviewed">Reviewed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs" htmlFor="review-date">
+                  Review date
+                </Label>
+                <Input
+                  id="review-date"
+                  type="date"
+                  value={reviewDate}
+                  onChange={(e) => handleReviewDateChange(e.target.value)}
+                  className="w-44"
+                />
+              </div>
+              {saving && (
+                <span className="pb-2 text-xs text-muted-foreground">Saving…</span>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="self-start text-destructive hover:text-destructive sm:self-auto"
+            >
+              <Trash2 className="mr-2 h-3.5 w-3.5" />
+              {deleting ? "Deleting…" : "Delete decision"}
+            </Button>
+          </div>
+
+          {(status === "decided" || status === "reviewed") && (
+            <div className="mt-4 space-y-1">
+              <Label className="text-xs" htmlFor="outcome">
+                Outcome
+              </Label>
+              <Textarea
+                id="outcome"
+                value={outcome}
+                onChange={(e) => setOutcome(e.target.value)}
+                onBlur={handleOutcomeBlur}
+                placeholder="What actually happened? Record the result to compare against your projections."
+                rows={2}
+              />
+            </div>
+          )}
+
+          {saveMsg && (
+            <p
+              className={`mt-3 text-xs ${
+                saveMsg.ok
+                  ? "text-green-700 dark:text-green-400"
+                  : "text-destructive"
+              }`}
+              role="status"
+            >
+              {saveMsg.text}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Tabs */}
       <Tabs defaultValue="overview">
         <TabsList>
@@ -169,19 +344,19 @@ function DecisionWorkspace({ decision }: { decision: Decision }) {
           <TabsTrigger value="journal">Journal</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview">
-          <OverviewTab decision={decision} />
+        <TabsContent value="overview" keepMounted>
+          <OverviewTab decision={liveDecision} />
         </TabsContent>
-        <TabsContent value="scenarios">
+        <TabsContent value="scenarios" keepMounted>
           <ScenariosTab decision={decision} />
         </TabsContent>
-        <TabsContent value="evidence">
+        <TabsContent value="evidence" keepMounted>
           <EvidenceTab decision={decision} />
         </TabsContent>
-        <TabsContent value="framework">
-          <FrameworkTab />
+        <TabsContent value="framework" keepMounted>
+          <FrameworkTab decisionId={decision.id} />
         </TabsContent>
-        <TabsContent value="journal">
+        <TabsContent value="journal" keepMounted>
           <JournalTab decision={decision} />
         </TabsContent>
       </Tabs>
@@ -286,25 +461,59 @@ function ScenariosTab({ decision }: { decision: Decision }) {
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const persistTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pendingFns = useRef<Record<string, () => Promise<void>>>({});
 
   useEffect(() => {
     const timers = persistTimers.current;
+    const fns = pendingFns.current;
     return () => {
-      Object.values(timers).forEach(clearTimeout);
+      // Flush any pending debounced saves so a slider change made within the
+      // debounce window of an unmount/navigation is not silently dropped.
+      Object.keys(timers).forEach((key) => {
+        clearTimeout(timers[key]);
+        const fn = fns[key];
+        if (fn) void fn().catch(() => {});
+      });
     };
   }, []);
 
-  const queuePersist = (key: string, fn: () => Promise<void>) => {
+  const cancelPersist = (key: string) => {
     const existing = persistTimers.current[key];
     if (existing) clearTimeout(existing);
+    delete persistTimers.current[key];
+    delete pendingFns.current[key];
+  };
+
+  const queuePersist = (key: string, fn: () => Promise<void>) => {
+    // Supersede any pending edit of the same key; keep unrelated keys queued.
+    if (persistTimers.current[key]) clearTimeout(persistTimers.current[key]);
+    pendingFns.current[key] = fn;
     persistTimers.current[key] = setTimeout(() => {
       delete persistTimers.current[key];
+      delete pendingFns.current[key];
       fn().catch((e) =>
         setError(e instanceof Error ? e.message : "Failed to save scenario changes")
       );
     }, 500);
+  };
+
+  const handleDeleteScenario = async (id: string) => {
+    if (deletingId) return;
+    cancelPersist(`${id}:probability`);
+    cancelPersist(`${id}:score`);
+    setDeletingId(id);
+    setError(null);
+    try {
+      await deleteScenario(id);
+      setScenarios((prev) => prev.filter((s) => s.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete scenario");
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const handleAddScenario = async () => {
@@ -391,9 +600,21 @@ function ScenariosTab({ decision }: { decision: Decision }) {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>{scenario.name}</CardTitle>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Score</span>
-                  <span className="text-lg font-bold">{scenario.score}</span>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Score</span>
+                    <span className="text-lg font-bold">{scenario.score}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => handleDeleteScenario(scenario.id)}
+                    disabled={deletingId === scenario.id}
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label="Delete scenario"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               </div>
               <CardDescription>{scenario.description}</CardDescription>
@@ -527,6 +748,7 @@ function EvidenceTab({ decision }: { decision: Decision }) {
   const [newRelevance, setNewRelevance] = useState<EvidenceRelevance>("medium");
   const [newSentiment, setNewSentiment] = useState<EvidenceSentiment>("neutral");
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleAdd = async () => {
@@ -547,6 +769,20 @@ function EvidenceTab({ decision }: { decision: Decision }) {
       setError(e instanceof Error ? e.message : "Failed to add evidence");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (deletingId) return;
+    setDeletingId(id);
+    setError(null);
+    try {
+      await deleteEvidence(id);
+      setEvidence((prev) => prev.filter((e) => e.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete evidence");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -645,6 +881,16 @@ function EvidenceTab({ decision }: { decision: Decision }) {
                     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${relevanceColors[ev.relevance]}`}>
                       {ev.relevance}
                     </span>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => handleDelete(ev.id)}
+                      disabled={deletingId === ev.id}
+                      className="text-muted-foreground hover:text-destructive"
+                      aria-label="Delete evidence"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </div>
                 <p className="text-sm leading-relaxed">{ev.content}</p>
@@ -673,8 +919,51 @@ function EvidenceTab({ decision }: { decision: Decision }) {
 
 // ─── Framework Tab ───────────────────────────────────────────────────────────
 
-function FrameworkTab() {
-  const [selected, setSelected] = useState<FrameworkType>("swot");
+/**
+ * Local-storage-backed state, keyed per decision. Framework worksheets have no
+ * dedicated per-decision DB table (the `frameworks` table is an org-scoped
+ * template catalog), so worksheet input is persisted in the browser. Combined
+ * with keepMounted on the tab panels this keeps typed input across tab switches
+ * AND page reloads instead of silently discarding it.
+ */
+function usePersistentState<T>(
+  key: string,
+  initial: T
+): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [state, setState] = useState<T>(initial);
+  const skipSave = useRef(true);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (raw !== null) setState(JSON.parse(raw) as T);
+    } catch {
+      /* ignore unavailable or malformed storage */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  useEffect(() => {
+    if (skipSave.current) {
+      // Skip the mount commit so the initial value never clobbers stored data.
+      skipSave.current = false;
+      return;
+    }
+    try {
+      window.localStorage.setItem(key, JSON.stringify(state));
+    } catch {
+      /* ignore */
+    }
+  }, [key, state]);
+
+  return [state, setState];
+}
+
+function FrameworkTab({ decisionId }: { decisionId: string }) {
+  const [selected, setSelected] = usePersistentState<FrameworkType>(
+    `aicapital:fw:${decisionId}:selected`,
+    "swot"
+  );
 
   return (
     <div className="space-y-4 mt-4">
@@ -695,19 +984,33 @@ function FrameworkTab() {
         </Select>
       </div>
 
-      {selected === "swot" && <SwotFramework />}
-      {selected === "weighted_scoring" && <WeightedScoringFramework />}
-      {selected === "pre_mortem" && <PreMortemFramework />}
-      {selected === "pros_cons" && <ProsConsFramework />}
+      {selected === "swot" && <SwotFramework decisionId={decisionId} />}
+      {selected === "weighted_scoring" && (
+        <WeightedScoringFramework decisionId={decisionId} />
+      )}
+      {selected === "pre_mortem" && <PreMortemFramework decisionId={decisionId} />}
+      {selected === "pros_cons" && <ProsConsFramework decisionId={decisionId} />}
     </div>
   );
 }
 
-function SwotFramework() {
-  const [strengths, setStrengths] = useState("");
-  const [weaknesses, setWeaknesses] = useState("");
-  const [opportunities, setOpportunities] = useState("");
-  const [threats, setThreats] = useState("");
+function SwotFramework({ decisionId }: { decisionId: string }) {
+  const [strengths, setStrengths] = usePersistentState(
+    `aicapital:fw:${decisionId}:swot:strengths`,
+    ""
+  );
+  const [weaknesses, setWeaknesses] = usePersistentState(
+    `aicapital:fw:${decisionId}:swot:weaknesses`,
+    ""
+  );
+  const [opportunities, setOpportunities] = usePersistentState(
+    `aicapital:fw:${decisionId}:swot:opportunities`,
+    ""
+  );
+  const [threats, setThreats] = usePersistentState(
+    `aicapital:fw:${decisionId}:swot:threats`,
+    ""
+  );
 
   return (
     <div className="grid grid-cols-2 gap-3">
@@ -771,14 +1074,17 @@ function SwotFramework() {
   );
 }
 
-function WeightedScoringFramework() {
-  const [criteria, setCriteria] = useState([
-    { name: "Strategic Fit", weight: 30, scoreA: 8, scoreB: 6 },
-    { name: "Cost", weight: 25, scoreA: 6, scoreB: 8 },
-    { name: "Risk", weight: 20, scoreA: 7, scoreB: 5 },
-    { name: "Time to Value", weight: 15, scoreA: 5, scoreB: 9 },
-    { name: "Team Impact", weight: 10, scoreA: 7, scoreB: 7 },
-  ]);
+function WeightedScoringFramework({ decisionId }: { decisionId: string }) {
+  const [criteria, setCriteria] = usePersistentState(
+    `aicapital:fw:${decisionId}:weighted`,
+    [
+      { name: "Strategic Fit", weight: 30, scoreA: 8, scoreB: 6 },
+      { name: "Cost", weight: 25, scoreA: 6, scoreB: 8 },
+      { name: "Risk", weight: 20, scoreA: 7, scoreB: 5 },
+      { name: "Time to Value", weight: 15, scoreA: 5, scoreB: 9 },
+      { name: "Team Impact", weight: 10, scoreA: 7, scoreB: 7 },
+    ]
+  );
 
   const updateCriterion = (index: number, field: string, value: string | number) => {
     setCriteria(
@@ -871,12 +1177,15 @@ function WeightedScoringFramework() {
   );
 }
 
-function PreMortemFramework() {
-  const [items, setItems] = useState([
-    "We underestimated the competitive response",
-    "Key assumptions about market timing were wrong",
-    "",
-  ]);
+function PreMortemFramework({ decisionId }: { decisionId: string }) {
+  const [items, setItems] = usePersistentState<string[]>(
+    `aicapital:fw:${decisionId}:premortem`,
+    [
+      "We underestimated the competitive response",
+      "Key assumptions about market timing were wrong",
+      "",
+    ]
+  );
 
   const updateItem = (index: number, value: string) => {
     setItems(items.map((item, i) => (i === index ? value : item)));
@@ -929,9 +1238,15 @@ function PreMortemFramework() {
   );
 }
 
-function ProsConsFramework() {
-  const [pros, setPros] = useState(["", ""]);
-  const [cons, setCons] = useState(["", ""]);
+function ProsConsFramework({ decisionId }: { decisionId: string }) {
+  const [pros, setPros] = usePersistentState<string[]>(
+    `aicapital:fw:${decisionId}:pros`,
+    ["", ""]
+  );
+  const [cons, setCons] = usePersistentState<string[]>(
+    `aicapital:fw:${decisionId}:cons`,
+    ["", ""]
+  );
 
   const updatePros = (i: number, v: string) =>
     setPros(pros.map((p, idx) => (idx === i ? v : p)));
@@ -1009,6 +1324,7 @@ function JournalTab({ decision }: { decision: Decision }) {
   const [newType, setNewType] = useState<"rationale" | "update" | "outcome_review">("update");
   const [newConfidence, setNewConfidence] = useState(decision.confidence);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleAdd = async () => {
@@ -1028,6 +1344,20 @@ function JournalTab({ decision }: { decision: Decision }) {
       setError(e instanceof Error ? e.message : "Failed to add journal entry");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (deletingId) return;
+    setDeletingId(id);
+    setError(null);
+    try {
+      await deleteJournalEntry(id);
+      setEntries((prev) => prev.filter((entry) => entry.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete journal entry");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -1117,6 +1447,16 @@ function JournalTab({ decision }: { decision: Decision }) {
                       year: "numeric",
                     })}
                   </span>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => handleDelete(entry.id)}
+                    disabled={deletingId === entry.id}
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label="Delete journal entry"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               </div>
               <p className="text-sm leading-relaxed">{entry.content}</p>
